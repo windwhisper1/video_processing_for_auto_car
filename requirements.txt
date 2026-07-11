@@ -1,0 +1,15 @@
+# Python 3.10+ recommended (torch 2.1.x does NOT support 3.12; use 2.4+ for 3.12)
+torch>=2.4.0
+torchvision>=0.19.0
+
+# Image / video processing (headless build: no libGL required on cloud servers)
+# Pin <5: OpenCV 5.x headless wheels may still require libGL on some Linux images.
+# If cv2 import fails after install, run:
+#   pip install "opencv-python-headless>=4.8.0,<5" --force-reinstall
+opencv-python-headless>=4.8.0,<5
+numpy>=1.26.0
+zxing-cpp>=2.2.0
+
+# YOLO11 lane segmentation + obstacle detection (model/lane_lines.py, model/obstacles.py)
+ultralytics>=8.3.0
+PyYAML>=6.0
