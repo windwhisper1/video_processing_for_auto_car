@@ -1,14 +1,15 @@
 # Perception Pipeline
 
-End-to-end video pipeline for indoor robot perception: lane-dash segmentation, obstacle detection, and QR code decoding. Annotated frames and an output MP4 are produced automatically.
+End-to-end video pipeline for indoor robot perception: lane-dash segmentation, obstacle detection, QR code decoding, and lane-center deviation. Annotated frames and an output MP4 are produced automatically.
 
 ## 1. Environment configuration
 
 ### Requirements
 
-- **Python** 3.12
+- **Python** 3.10+ (3.12 recommended; requires `torch>=2.4` for 3.12)
 - **GPU** optional — CUDA is used when available; CPU fallback is supported
 - Trained weights under `weights/` (see [Project layout](#project-layout))
+- Dependencies in `requirements.txt` (includes `numpy`, used by lane-center deviation)
 
 ### Install dependencies
 
@@ -42,12 +43,12 @@ pip install "opencv-python-headless>=4.8.0,<5" --force-reinstall
 ### For inference (`python pipeline.py`)
 
 
-| Type            | Formats                                 | Description                                                                               |
-| --------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **Input video** | `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm` | Robot-camera footage showing lane dashes, obstacles (e.g. cones), and optionally QR codes |
+| Type            | Formats                                 | Description                                                                                          |
+| --------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Input video** | `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm` | Robot-camera footage with lane dashes (for segmentation + deviation), obstacles, and optional QR codes |
 
 
-Videos should be shot from a low, forward-facing camera in an indoor environment similar to the training data.
+Videos should be shot from a low, forward-facing camera in an indoor environment similar to the training data. A visible dashed guide line is enough for midpoint **M** and deviation (two parallel road edges are not required).
 
 ---
 
@@ -129,8 +130,23 @@ python pipeline.py --frame-interval 10
 2. Segment lane dashes — green polygon outlines, no boxes
 3. Detect obstacles — green bounding boxes with confidence scores
 4. Detect QR codes — green outline + decoded text (HUD shows `no code` if none found)
-5. Combine all overlays and status text (`detected lanes: N`)
-6. Assemble annotated frames into an output MP4
+5. Compute lane-center deviation from dash masks (`calculate_deviation.py`)
+6. Combine all overlays and status text (`detected lanes: N`, QR status, `deviation: … px left|right`)
+7. Assemble annotated frames into an output MP4
+
+
+
+### Lane-center deviation
+
+When at least one lane dash is detected, the pipeline:
+
+1. Takes the **centroid** of each dash polygon mask
+2. Fits a quadratic curve \(x = a y^2 + b y + c\) through those centers (linear/constant fallback if fewer than 3 points)
+3. Sets \(y_{\mathrm{ref}} = H\) and evaluates \(x_{\mathrm{ref}} = f(y_{\mathrm{ref}})\)
+4. Draws midpoint **M** at \((x_{\mathrm{ref}},\, y_{\mathrm{ref}})\)
+5. Computes \(\mathrm{deviation} = |x_{\mathrm{ref}} - W/2|\) (pixels from image center)
+6. Labels side for the **car** relative to the lane: `left` if \(x_{\mathrm{ref}} > W/2\), `right` if \(x_{\mathrm{ref}} < W/2\), else `center`
+7. Shows `deviation: … px left|right|center` in the top-left HUD **below** the lane-count and QR lines (no overlap)
 
 ---
 
@@ -164,7 +180,11 @@ Each annotated frame shows:
 - Green polygon outlines around lane dashes
 - Green bounding boxes labeled `obstacle 0.XX`
 - Green QR code outline and decoded text (when present)
-- Top-left HUD: `detected lanes: N` and QR status (`no code` or decoded value)
+- Midpoint **M** on the fitted lane center at the bottom of the frame (\(y = H\); drawn slightly inset so the full dot stays visible)
+- Top-left HUD (top to bottom):
+  - `detected lanes: N`
+  - QR status (`no code` or decoded value)
+  - `deviation: … px left|right|center` (omitted if no lane masks; side is car vs lane, opposite of where **M** sits)
 
 ---
 
@@ -175,6 +195,7 @@ Each annotated frame shows:
 ```
 pipeline/
 ├── pipeline.py              # main entry point
+├── calculate_deviation.py   # lane midpoint + lateral deviation overlay
 ├── video_to_frames.py       # frame extraction + cache
 ├── frames_to_video.py       # assemble frames into MP4
 ├── detect_QR_code.py        # QR detection and overlay

@@ -5,7 +5,7 @@ End-to-end perception pipeline:
   2. Segment lane dashes (polygon outlines, no boxes)
   3. Detect obstacles (bounding boxes + confidence)
   4. Detect QR codes (polygon outline + decoded text)
-  5. Combine overlays and HUD text (lane count + QR status)
+  5. Combine overlays and HUD text (lane count + QR status + deviation)
   6. Assemble annotated frames into an output MP4
 
 Usage:
@@ -22,6 +22,7 @@ from pathlib import Path
 
 import cv2
 
+from calculate_deviation import annotate_deviation
 from detect_QR_code import (
     detect_qr_codes_from_image,
     qr_status_text,
@@ -49,6 +50,9 @@ HUD_COLOR = (0, 255, 0)
 # Avoid import-time failure when cv2 bindings are partially loaded on some servers.
 HUD_FONT = getattr(cv2, "FONT_HERSHEY_SIMPLEX", 0)
 HUD_LINE_TYPE = getattr(cv2, "LINE_AA", 16)
+HUD_TEXT_X = 12
+HUD_TEXT_Y0 = 24
+HUD_LINE_HEIGHT = 28
 
 
 def read_frame(extracted: ExtractedFrames, index: int):
@@ -66,22 +70,23 @@ def render_status_overlay(
     image_bgr,
     lane_count: int,
     qr_text: str,
-) -> None:
-    """Draw HUD text in the top-left corner."""
+) -> int:
+    """Draw HUD text in the top-left corner; return next free baseline y."""
     lines = [f"detected lanes: {lane_count}", qr_text]
-    y = 24
+    y = HUD_TEXT_Y0
     for line in lines:
         cv2.putText(
             image_bgr,
             line,
-            (12, y),
+            (HUD_TEXT_X, y),
             HUD_FONT,
             0.65,
             HUD_COLOR,
             2,
             HUD_LINE_TYPE,
         )
-        y += 28
+        y += HUD_LINE_HEIGHT
+    return y
 
 
 def combine_frame(
@@ -90,7 +95,7 @@ def combine_frame(
     obstacle_detections,
     qr_results,
 ):
-    """Merge lane, obstacle, and QR overlays plus HUD text onto one frame."""
+    """Merge lane, obstacle, QR, deviation overlays plus HUD text onto one frame."""
     overlay = render_lane_overlay(
         image_bgr,
         lane_polygons,
@@ -98,11 +103,12 @@ def combine_frame(
     )
     overlay = render_obstacle_overlay(overlay, obstacle_detections)
     overlay = render_qr_overlay(overlay, qr_results)
-    render_status_overlay(
+    next_hud_y = render_status_overlay(
         overlay,
         lane_count=len(lane_polygons),
         qr_text=qr_status_text(qr_results),
     )
+    annotate_deviation(overlay, lane_polygons, text_y=next_hud_y)
     return overlay
 
 
